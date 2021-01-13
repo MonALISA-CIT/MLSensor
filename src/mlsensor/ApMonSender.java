@@ -104,6 +104,7 @@ public class ApMonSender {
 				int len = 0;
 				String sResultClusterName = null;
 				String sModuleName = null;
+				String sNodeName = null;
 
 				Result r = null;
 				eResult er = null;
@@ -115,6 +116,7 @@ public class ApMonSender {
 
 					len = r.param.length;
 					sModuleName = r.Module;
+					sNodeName = r.NodeName;
 					sResultClusterName = r.ClusterName;
 				}
 				else
@@ -123,6 +125,7 @@ public class ApMonSender {
 
 						len = er.param.length;
 						sModuleName = er.Module;
+						sNodeName = er.NodeName;
 						sResultClusterName = er.ClusterName;
 
 						result = false;
@@ -210,8 +213,14 @@ public class ApMonSender {
 				if (sExtraSuffix != null && sExtraSuffix.length() > 0)
 					sClusterName += sExtraSuffix;
 
-				localapMon.sendParameters(sClusterName, MLSensorConfig.getMLSensorNodeName(), paramsName.size(), new Vector<>(paramsName), new Vector<>(paramsValue));
-			} catch (final Throwable t) {
+				if (sModuleName != null && sModuleName.equalsIgnoreCase("monXrdSpace") && sNodeName != null)
+					sNodeName = sNodeName.replace("localhost", MLSensorConfig.getMLSensorNodeName());
+				else
+					sNodeName = MLSensorConfig.getMLSensorNodeName();
+
+				localapMon.sendParameters(sClusterName, sNodeName, paramsName.size(), new Vector<>(paramsName), new Vector<>(paramsValue));
+			}
+			catch (final Throwable t) {
 				logger.log(Level.WARNING, "[ SenderTask ] Unable to publish result: " + o + " with apmon. Cause: ", t);
 			}
 
