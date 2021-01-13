@@ -1,0 +1,300 @@
+#!/bin/bash
+
+PRG="$0"
+
+#set -x
+
+while [ -h "$PRG" ]; do
+  ls=`ls -ld "$PRG"`
+  link=`expr "$ls" : '.*-> \(.*\)$'`
+  if expr "$link" : '.*/.*' > /dev/null; then
+    PRG="$link"
+  else
+    PRG=`dirname "$PRG"`/"$link"
+  fi
+done
+
+# Get standard environment variables
+PRGDIR=`dirname "$PRG"`
+MLSENSOR_HOME="`readlink -f ${PRGDIR}/../`"
+REQUIRED_JAVA_VERSION="1.6"
+
+if [ -f ${MLSENSOR_HOME}/etc/mlsensor_env ]; then
+ . ${MLSENSOR_HOME}/etc/mlsensor_env
+fi
+
+LOGFILE=${LOGFILE:-${MLSENSOR_HOME}/MLSensor.log}
+
+
+setJavaCMD() {
+        COMPACT_REQ_VERSION=`echo $REQUIRED_JAVA_VERSION | sed -e 's;\.;0;g'`
+
+        if [ -z "${JAVA_HOME}" ]; then
+           JAVA_CMD="java"
+        else
+           JAVA_CMD="${JAVA_HOME}/bin/java"
+        fi
+
+        LOCAL_VERSION=`${JAVA_CMD} -Xmx2m -Xms2m -version 2>&1 | grep "version" | awk '{ print substr($3, 2, length($3)-2); }'`
+
+        if [ -z "${LOCAL_VERSION}" ]; then
+           echo "Unable to determine local java version"
+           JAVA_CMD=
+           return 1
+        fi
+
+        LOCAL_COMPACT_VERSION=`echo $LOCAL_VERSION | awk '{ print substr($1, 1, 3); }' | sed -e 's;\.;0;g'`
+        if [ $LOCAL_COMPACT_VERSION -ge $COMPACT_REQ_VERSION ]; then
+                return 0
+        fi
+
+        echo "Your local java version:$LOCAL_VERSION is not ok. You need at least version:$REQUIRED_JAVA_VERSION Sun/Oracle JVM"
+        JAVA_CMD=
+
+	return 1
+}
+
+set_cmd() {
+    setJavaCMD
+
+    if [ -z "$JAVA_CMD" ]; then
+	return 1
+    fi
+
+    cmd="$JAVA_CMD \
+-Xms16m -Xmx32m  \
+-DMLSENSOR_HOME=${MLSENSOR_HOME} \
+-Djava.util.logging.config.class=lia.Monitor.monitor.LoggerConfigClass \
+-Dlia.Monitor.ConfigURL=file:${MLSENSOR_HOME}/etc/mlsensor.properties"
+
+    cmd="${cmd} -jar ${MLSENSOR_HOME}/lib/MLSensor.jar"
+
+    return 0
+}
+
+
+set_RE_cmd() {
+    cmd_RE=".*java .*\
+-DMLSENSOR_HOME=.* .*"
+
+    return 0
+}
+
+# start the service
+start(){
+    if status; then
+        echo "MLSensor still running? [ PID == ${pid} ]"
+        return 1
+    fi
+    set_cmd
+
+    if [ -z "${cmd}" ]; then
+	return 1
+    fi
+
+    echo -n "Trying to start MLSensor ...."
+
+    cd ${MLSENSOR_HOME}; ${cmd} > $LOGFILE 2>&1 &
+    sleep 5
+
+    pid=`pgrep -f -P $$ "${cmd_RE}"`
+    if [ -z "${pid}" ]; then
+        echo "FAILED"
+        echo "Please check ${LOGFILE}"
+
+        return 1
+    else
+        echo "STARTED [ PID == ${pid} ]"
+    fi
+
+    if [ -z "$SKIP_CRON" ]; then
+	cron
+    fi
+
+    return 0
+}
+
+# stop the running service
+stop(){
+    set_RE_cmd 
+
+    c_uid="`id -u -r`"
+
+    ppid_cmd="pgrep -u ${c_uid} -f -P 1 \"${cmd_RE}\""
+    pid_cmd="pgrep -u ${c_uid} -f \"${cmd_RE}\""
+    ppid=`/bin/bash -c "${ppid_cmd}"`
+    pid=`/bin/bash -c "${pid_cmd}"`
+
+    if [ -z "${pid}" ]; then
+        echo "MLSensor not running ?!"
+        return 0
+    fi
+    echo -n "Trying to stop MLSensor..."
+
+    if [ -z "$SKIP_CRON" ]; then
+	clearcron
+    fi
+
+    kill ${ppid} >/dev/null 2>&1
+    sleep 5
+    more=`/bin/bash -c "${pid_cmd}"`
+
+    if [ -z "${more}" ]; then
+        echo "STOPPED"
+        return 0
+    fi
+    echo "FAILED"
+    echo -n "Retrying...Please wait..."
+
+    pid=`/bin/bash -c "${pid_cmd}"`
+    if [ -z "${pid}" ]; then
+        echo "STOPPED"
+        return 0
+    fi
+
+    kill ${pid} >/dev/null 2>&1
+    sleep 10
+
+    more=`/bin/bash -c "${pid_cmd}"`
+    if [ -z ${more} ]; then
+        echo "OK!"
+        return 0
+    fi
+
+    echo "FAILED!!!"
+    echo -n "Force kill..."
+    pid=`/bin/bash -c "${pid_cmd}"`
+
+    if [ -z "${pid}" ]; then
+        echo "Killed!"
+        return 0
+    fi
+
+    kill -9 ${pid} >/dev/null 2>&1
+    sleep 5
+
+    more=`/bin/bash -c "${pid_cmd}"`
+    if [ -z "${more}" ]; then
+        echo "KILLED"
+        return 0
+    fi
+    
+    echo "FAILED!!!!"
+    echo -n "Retrying to kill..."
+
+    pid=`/bin/bash -c "${pid_cmd}"`
+    if [ -z "${pid}" ]; then
+        echo "KILLED"
+        return 0
+    fi
+
+    kill -9 ${pid} >/dev/null 2>&1
+    sleep 10
+
+    more=`/bin/bash -c "${pid_cmd}"`
+
+    if [ -z "${more}" ]; then
+        echo "KILLED"
+        return 0
+    fi
+
+    hostname=`hostname -f`
+    mail -s "Cannot stop MLSensor @ ${hostname} with kill -9!" "Ramiro.Voicu@cern.ch" 2>&1 >/dev/null &
+    echo "FAILED!!!"
+
+    return 1
+}
+
+# restart the application (after an update for example)
+restart(){
+    SKIP_CRON="Y"
+
+    stop
+
+    if [ $? -eq 0 ]; then
+        start
+    else
+        echo "MLSensor was NOT started because stopping the service failed!"
+        exit 1
+    fi
+}
+
+# install the crontab entries
+cron(){
+    (
+        crontab -l 2>/dev/null | grep -v "/MLSensor"
+        echo "@reboot ${MLSENSOR_HOME}/bin/MLSensor start &>/dev/null"
+        echo "*/10 * * * * ${MLSENSOR_HOME}/bin/MLSensor check &>/dev/null"
+    ) | crontab - 2>/dev/null
+}
+
+# clear the MLSensor-related crontab entries
+clearcron(){
+    crontab -l 2>/dev/null | grep -v "/bin/MLSensor" | crontab - 2>/dev/null
+}
+
+# @return 0 if running, 1 if not
+status(){
+    set_RE_cmd
+    c_uid="`id -u -r`"
+
+    pid="`pgrep -u ${c_uid} -f \"${cmd_RE}\"`"
+
+    if [ -z "$pid" ]; then
+	return 1
+    else
+	return 0
+    fi
+}
+
+# check if the service is running, if not start it
+# @see #status
+check(){
+    if status; then
+        echo "Service is running, not taking any action"
+    else
+        echo "Service not running, restarting"
+        start
+    fi
+}
+
+version() {
+   setJavaCMD
+   if [ -z "$JAVA_CMD" ]; then 
+        echo "Unable to find suitable java"
+        return 1
+   fi
+
+   ${JAVA_CMD} -Xmx2m -Xms2m -jar ${MLSENSOR_HOME}/lib/MLSensor.jar -version
+   return 0
+}
+
+case $1 in
+'start')
+	start
+	;;
+'stop')
+	stop
+	;;
+'check')
+	check
+	;;
+'cron')
+	cron
+	;;
+'clearcron')
+	clearcron
+	;;
+'restart')
+	restart
+	;;
+'status')
+	status
+	;;
+'version')
+	version
+	;;
+*)
+	echo "Usage: $0 [ start | stop | restart | check | cron | clearcron | status | version ]"
+	;;
+esac

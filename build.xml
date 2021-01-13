@@ -1,0 +1,137 @@
+<project name="MLSensor" default="dist" basedir=".">
+    <echo message="${line.separator}${line.separator} Using java ${java.version} ${line.separator}${line.separator} " />
+    <property name="mlsensor.major.version" value="1" />
+    <property name="mlsensor.minor.version" value="2" />
+    <property name="mlsensor.maintenance.version" value="6" />
+
+    <tstamp>
+        <format property="currentdate" pattern="yyyy-MM-dd" />
+        <format property="extendedcurrentdate" timezone="UTC" pattern="yyyyMMddHHmm" />
+        <format property="normaldate" pattern="yyyy-MM-dd HH:mm" />
+    </tstamp>
+
+
+    <property file="buildNumber.properties" />
+    <property name="mlsensor.version" value="${mlsensor.major.version}.${mlsensor.minor.version}.${mlsensor.maintenance.version}" />
+    <property name="mlsensor.full_version" value="${mlsensor.major.version}.${mlsensor.minor.version}.${mlsensor.maintenance.version}-${extendedcurrentdate}" />
+    <property name="mlsensor.vdate" value="${currentdate}" />
+
+    <property name="jar_name" value="MLSensor" />
+    <property name="mlsensor.updateURL" value="http://monalisa.cern.ch/MLSensor/" />
+    <property name="apmonDest" value="monalisa2.cern.ch:28884,monalisa2.caltech.edu:28884" />
+    <echo message="Using MLSensor Full version: ${mlsensor.full_version}" />
+    <property name="mlsensor.home" value="." />
+    <property name="lib.dir" value="lib" />
+    <property name="src.dir" value="build/src" />
+    <property name="build.dir" value="build/classes" />
+    <property name="src.from.dir" value="src" />
+    <property name="dist.dir" value="build/dist" />
+    <!-- - - - - - - - - - - - - - - - - - 
+          target: init                      
+         - - - - - - - - - - - - - - - - - -->
+    <target name="init">
+        <mkdir dir="${dist.dir}" />
+        <mkdir dir="${src.dir}" />
+        <mkdir dir="${build.dir}" />
+        <mkdir dir="${dist.dir}/MLSensor" />
+
+        <filter token="program_full_version" value="${mlsensor.full_version}" />
+
+        <filter token="program_major_version" value="${mlsensor.major.version}" />
+        <filter token="program_minor_version" value="${mlsensor.minor.version}" />
+        <filter token="program_maintenance_version" value="${mlsensor.maintenance.version}" />
+
+        <filter token="program_vdate" value="${mlsensor.vdate}" />
+        <filter token="program_update_url" value="${mlsensor.updateURL}" />
+        <filter token="apmon_destinations" value="${mlsensor.apmDEST}" />
+        <filter token="jar_name" value="${jar_name}" />
+        <mkdir dir="${src.dir}" />
+
+        <!-- ant touch task does not work as expected -->
+
+        <exec executable="touch">
+            <arg line="${src.from.dir}/mlsensor/MLSensor.java" />
+        </exec>
+
+        <!--Filter only java source files...and not images-->
+        <copy todir="${src.dir}" filtering="true">
+            <fileset dir="${src.from.dir}">
+                <include name="**/**.java" />
+                <include name="**/**.manifest" />
+            </fileset>
+            <filterchain>
+                <!--stripjavacomments/-->
+                <replacetokens />
+            </filterchain>
+        </copy>
+        <!-- Put the other files directly to build directory -->
+        <!--Filter only java source files...and not images-->
+        <copy todir="${dist.dir}/MLSensor" filtering="false">
+            <fileset dir=".">
+                <include name="bin/**" />
+                <include name="lib/**" />
+                <include name="etc/**" />
+            </fileset>
+        </copy>
+        <chmod perm="755" dir="${dist.dir}/MLSensor/bin" includes="**/*" />
+        <chmod perm="755" dir="${dist.dir}/MLSensor/etc" includes="*env*" />
+        <!-- Create the time stamp -->
+        <tstamp />
+    </target>
+    <path id="compile.java.classpath">
+        <fileset dir="${mlsensor.home}/lib">
+            <include name="*.jar" />
+        </fileset>
+    </path>
+    <!-- ================================= 
+          target: compile              
+         ================================= -->
+    <target name="compile" depends="init" description="--> compile MLSensor">
+        <echo message="Compile *.java in ${src.dir}" />
+        <javac srcdir="${src.dir}" destdir="${build.dir}" nowarn="on" debug="true" optimize="true" source="8" target="8">
+            <classpath refid="compile.java.classpath" />
+            <include name="**/*.java" />
+        </javac>
+
+    </target>
+    <!-- ================================= 
+          target: dist              
+         ================================= -->
+    <target name="dist" depends="compile" description="--> builds MLSensor.jar and also the full MLSensor dir layout">
+        <echo message="Building MLSensor.jar" />
+        <manifest file="${src.dir}/mlsensor/mlsensor.manifest" mode="update">
+            <attribute name="Built-Jdk" value="${java.runtime.version}" />
+            <attribute name="Built-By" value="${user.name}" />
+            <attribute name="Built-Arch" value="${os.arch}" />
+            <attribute name="Built-Os" value="${os.name} ${os.version}" />
+            <attribute name="Release-Date" value="${mlsensor.vdate}" />
+            <attribute name="Release-Version" value="${mlsensor.version}" />
+            <attribute name="Implementation-Version" value="${mlsensor.full_version}" />
+        </manifest>
+        <jar jarfile="${dist.dir}/MLSensor/lib/${jar_name}.jar" basedir="${build.dir}" manifest="${src.dir}/mlsensor/mlsensor.manifest" update="false">
+            <include name="mlsensor/**/*.class" />
+        </jar>
+        <delete verbose="true">
+    	    <fileset dir="${dist.dir}" includes="MLSensor_*.tgz" />
+    	</delete>
+        <tar destfile="${dist.dir}/MLSensor.tar">
+            <tarfileset mode="755" dir="${dist.dir}">
+                <include name="MLSensor/bin/**" />
+            </tarfileset>
+            <tarfileset dir="${dist.dir}">
+                <exclude name="MLSensor/bin/**" />
+            </tarfileset>
+        </tar>
+        <gzip destfile="${dist.dir}/MLSensor_${mlsensor.version}.tgz" src="${dist.dir}/MLSensor.tar" />
+        <delete verbose="true" file="${dist.dir}/MLSensor.tar" />
+
+        <echo message="${line.separator}${line.separator}MLSensor archive ready: ${dist.dir}/MLSensor.tgz ${line.separator}${line.separator}" />
+    </target>
+
+    <!-- - - - - - - - - - - - - - - - - - 
+          target: clean                      
+         - - - - - - - - - - - - - - - - - -->
+    <target name="clean">
+        <delete quiet="true" verbose="false" dir="${build.dir}/.." />
+    </target>
+</project>

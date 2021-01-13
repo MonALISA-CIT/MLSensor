@@ -1,0 +1,2 @@
+Main-Class: mlsensor.MLSensor
+Class-Path: FarmMonitor.jar apmon.jar
