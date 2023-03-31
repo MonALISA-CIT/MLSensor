@@ -36,6 +36,7 @@ public class MLSensorConfig {
 		defaultConfig.put("Netstat", new ModuleConfig("Netstat", 60, TimeUnit.SECONDS));
 		defaultConfig.put("monLMSensors", new ModuleConfig("monLMSensors", 120, TimeUnit.SECONDS));
 		defaultConfig.put("monIPMI", new ModuleConfig("monIPMI", 120, TimeUnit.SECONDS));
+		defaultConfig.put("monEOSVersion", new ModuleConfig("monEOSVersion", 120, TimeUnit.SECONDS));
 		defaultConfig.put("DiskDF", new ModuleConfig("DiskDF", 300, TimeUnit.SECONDS));
 		defaultConfig.put("monIPAddresses", new ModuleConfig("monIPAddresses", 300, TimeUnit.SECONDS));
 		defaultConfig.put("SysInfo", new ModuleConfig("SysInfo", 300, TimeUnit.SECONDS));
